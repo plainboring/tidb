@@ -225,11 +225,15 @@ func registerStores() {
 	err := kvstore.Register("tikv", tikv.Driver{})
 	terror.MustNil(err)
 	tikv.NewGCHandlerFunc = gcworker.NewGCWorker
+	boring.SetPDAddr(*storePath)
 	tikv.NewConfigHandlerFunc = boring.NewConfigWorker
 	err = kvstore.Register("mocktikv", mockstore.MockDriver{})
 	terror.MustNil(err)
 
 	executor.UpdateHook = func(t table.Table, newData []types.Datum) error {
+		if *storePath == "" {
+			return nil
+		}
 		defaultCfgClient := boring.GetDefaultWorker()
 		if defaultCfgClient == nil {
 			return nil

@@ -15,11 +15,13 @@ import (
 	"github.com/pingcap/tidb/store/tikv"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/plainboring/config_client/pkg/cfgclient"
+	pdcfg "github.com/plainboring/config_client/pkg/pd"
 	kvcfg "github.com/plainboring/config_client/pkg/tikv"
 	"go.uber.org/zap"
 )
 
 var defaultWorker *configWorker
+var pdAddress string
 
 // ConfigWorker ..
 type configWorker struct {
@@ -30,7 +32,7 @@ type configWorker struct {
 
 // NewConfigWorker returns a new config worker
 func NewConfigWorker(storage tikv.Storage, pdClient pd.Client) (tikv.ConfigHandler, error) {
-	cfgClient, err := cfgclient.NewMockClient()
+	cfgClient, err := cfgclient.NewConfigClient(context.Background(), pdAddress)
 	if err != nil {
 		return nil, errors.Trace(err)
 	}
@@ -43,6 +45,11 @@ func NewConfigWorker(storage tikv.Storage, pdClient pd.Client) (tikv.ConfigHandl
 		session:   createSession(storage),
 	}
 	return defaultWorker, nil
+}
+
+// SetPDAddr sets the pd address
+func SetPDAddr(addr string) {
+	pdAddress = addr
 }
 
 // GetDefaultWorker returns the default worker
@@ -119,10 +126,11 @@ func (w *configWorker) initPDConfig() error {
 		return errors.Trace(err)
 	}
 	cfgReader := strings.NewReader(cfg)
-	pdCfg := new(PDConfig)
+	pdCfg := new(pdcfg.Config)
 	_, err = toml.DecodeReader(cfgReader, pdCfg)
 	if err != nil {
-		return err
+		log.Error("decode pd failed", zap.Error(err))
+		return errors.Trace(err)
 	}
 
 	serverCfg := pdCfg.PDServerCfg
@@ -162,22 +170,22 @@ func (w *configWorker) initPDConfig() error {
 	if err != nil {
 		return errors.Trace(err)
 	}
-	err = w.updatePDConfig([]string{"schedule"}, "split-merge-interval", fmt.Sprintf("%s", scheduleCfg.SplitMergeInterval))
-	if err != nil {
-		return errors.Trace(err)
-	}
+	// err = w.updatePDConfig([]string{"schedule"}, "split-merge-interval", fmt.Sprintf("%s", scheduleCfg.SplitMergeInterval))
+	// if err != nil {
+	// 	return errors.Trace(err)
+	// }
 	err = w.updatePDConfig([]string{"schedule"}, "enable-one-way-merge", fmt.Sprintf("%t", scheduleCfg.EnableOneWayMerge))
 	if err != nil {
 		return errors.Trace(err)
 	}
-	err = w.updatePDConfig([]string{"schedule"}, "patrol-region-interval", fmt.Sprintf("%s", scheduleCfg.PatrolRegionInterval))
-	if err != nil {
-		return errors.Trace(err)
-	}
-	err = w.updatePDConfig([]string{"schedule"}, "max-store-down-time", fmt.Sprintf("%s", scheduleCfg.MaxStoreDownTime))
-	if err != nil {
-		return errors.Trace(err)
-	}
+	// err = w.updatePDConfig([]string{"schedule"}, "patrol-region-interval", fmt.Sprintf("%s", scheduleCfg.PatrolRegionInterval))
+	// if err != nil {
+	// 	return errors.Trace(err)
+	// }
+	// err = w.updatePDConfig([]string{"schedule"}, "max-store-down-time", fmt.Sprintf("%s", scheduleCfg.MaxStoreDownTime))
+	// if err != nil {
+	// 	return errors.Trace(err)
+	// }
 	err = w.updatePDConfig([]string{"schedule"}, "leader-schedule-limit", fmt.Sprintf("%d", scheduleCfg.LeaderScheduleLimit))
 	if err != nil {
 		return errors.Trace(err)
