@@ -230,15 +230,21 @@ func registerStores() {
 	terror.MustNil(err)
 
 	executor.UpdateHook = func(t table.Table, newData []types.Datum) error {
+		defaultCfgClient := boring.GetDefaultWorker()
+		if defaultCfgClient == nil {
+			return nil
+		}
 		if t.Meta().Name.String() == "tikv" {
-			defaultCfgClient := boring.GetDefaultWorker()
-			if defaultCfgClient != nil {
-				storeID := newData[0].GetValue().(int64)
-				subs := strings.Split(string(newData[1].GetValue().([]byte)), ",")
-				name := string(newData[2].GetValue().([]byte))
-				value := string(newData[2].GetValue().([]byte))
-				defaultCfgClient.UpdateTiKV(uint64(storeID), subs, name, value)
-			}
+			storeID := newData[0].GetValue().(int64)
+			subs := strings.Split(string(newData[1].GetValue().([]byte)), ",")
+			name := string(newData[2].GetValue().([]byte))
+			value := newData[3].GetValue().(string)
+			defaultCfgClient.UpdateTiKV(uint64(storeID), subs, name, value)
+		} else if t.Meta().Name.String() == "pd" {
+			subs := strings.Split(string(newData[0].GetValue().([]byte)), ",")
+			name := string(newData[1].GetValue().([]byte))
+			value := string(newData[2].GetValue().(string))
+			defaultCfgClient.UpdatePD(subs, name, value)
 		}
 		return nil
 	}

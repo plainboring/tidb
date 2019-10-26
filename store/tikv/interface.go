@@ -79,4 +79,5 @@ type ConfigHandler interface {
 	// Start starts the ConfigHandler.
 	Start()
 	UpdateTiKV(storeID uint64, subs []string, name, value string) error
+	UpdatePD(subs []string, name, value string) error
 }

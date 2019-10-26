@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/juju/errors"
@@ -66,7 +67,26 @@ func createSession(store tikv.Storage) session.Session {
 // Start starts a background config worker.
 func (w *configWorker) Start() {
 	log.Info("start config worker")
-	w.initTiKVConfig(1)
+	c := context.Background()
+	ctx, cancel := context.WithTimeout(c, time.Second*5)
+	defer cancel()
+
+	stores, err := w.pdClient.GetAllStores(ctx)
+	if err != nil {
+		log.Error("get store failed", zap.Error(err))
+	}
+	for _, s := range stores {
+		storeID := s.GetId()
+		err = w.initTiKVConfig(storeID)
+		if err != nil {
+			log.Error("init tikv failed", zap.Error(err),
+				zap.Uint64("storeID", storeID))
+		}
+	}
+	err = w.initPDConfig()
+	if err != nil {
+		log.Error("init pd failed", zap.Error(err))
+	}
 }
 
 // UpdateTiKV updates tikv config
@@ -75,8 +95,188 @@ func (w *configWorker) UpdateTiKV(
 	log.Info("config client",
 		zap.Uint64("storeID", storeID), zap.Strings("sub", subs),
 		zap.String("name", name), zap.String("value", value),
+		zap.String("comp", "tikv"),
 	)
 	err := w.cfgClient.Update("tikv", subs, name, value, storeID)
+	return errors.Trace(err)
+}
+
+// UpdatePD updates pd config
+func (w *configWorker) UpdatePD(
+	subs []string, name, value string) error {
+	log.Info("config client",
+		zap.Strings("sub", subs),
+		zap.String("name", name), zap.String("value", value),
+		zap.String("comp", "pd"),
+	)
+	err := w.cfgClient.Update("pd", subs, name, value, 0)
+	return errors.Trace(err)
+}
+
+func (w *configWorker) initPDConfig() error {
+	cfg, err := w.cfgClient.Get("pd", 0)
+	if err != nil {
+		return errors.Trace(err)
+	}
+	cfgReader := strings.NewReader(cfg)
+	pdCfg := new(PDConfig)
+	_, err = toml.DecodeReader(cfgReader, pdCfg)
+	if err != nil {
+		return err
+	}
+
+	serverCfg := pdCfg.PDServerCfg
+	err = w.updatePDConfig([]string{"pd-server"}, "use-region-storage", fmt.Sprintf("%t", serverCfg.UseRegionStorage))
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	replicaCfg := pdCfg.Replication
+	err = w.updatePDConfig([]string{"replication"}, "max-replicas", fmt.Sprintf("%d", replicaCfg.MaxReplicas))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"replication"}, "location-labels", fmt.Sprintf("%s", replicaCfg.LocationLabels))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"replication"}, "strictly-match-label", fmt.Sprintf("%t", replicaCfg.StrictlyMatchLabel))
+	if err != nil {
+		return errors.Trace(err)
+	}
+
+	scheduleCfg := pdCfg.Schedule
+	err = w.updatePDConfig([]string{"schedule"}, "max-snapshot-count", fmt.Sprintf("%d", scheduleCfg.MaxSnapshotCount))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "max-pending-peer-count", fmt.Sprintf("%d", scheduleCfg.MaxPendingPeerCount))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "max-merge-region-size", fmt.Sprintf("%d", scheduleCfg.MaxMergeRegionSize))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "max-merge-region-keys", fmt.Sprintf("%d", scheduleCfg.MaxMergeRegionKeys))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "split-merge-interval", fmt.Sprintf("%s", scheduleCfg.SplitMergeInterval))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "enable-one-way-merge", fmt.Sprintf("%t", scheduleCfg.EnableOneWayMerge))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "patrol-region-interval", fmt.Sprintf("%s", scheduleCfg.PatrolRegionInterval))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "max-store-down-time", fmt.Sprintf("%s", scheduleCfg.MaxStoreDownTime))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "leader-schedule-limit", fmt.Sprintf("%d", scheduleCfg.LeaderScheduleLimit))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "leader-schedule-strategy", fmt.Sprintf("%s", scheduleCfg.LeaderScheduleStrategy))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "region-schedule-limit", fmt.Sprintf("%d", scheduleCfg.RegionScheduleLimit))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "replica-schedule-limit", fmt.Sprintf("%d", scheduleCfg.ReplicaScheduleLimit))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "merge-schedule-limit", fmt.Sprintf("%d", scheduleCfg.MergeScheduleLimit))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "hot-region-schedule-limit", fmt.Sprintf("%d", scheduleCfg.HotRegionScheduleLimit))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "hot-region-cache-hits-threshold", fmt.Sprintf("%d", scheduleCfg.HotRegionCacheHitsThreshold))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "store-balance-rate", fmt.Sprintf("%f", scheduleCfg.StoreBalanceRate))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "tolerant-size-ratio", fmt.Sprintf("%f", scheduleCfg.TolerantSizeRatio))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "low-space-ratio", fmt.Sprintf("%f", scheduleCfg.LowSpaceRatio))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "high-space-ratio", fmt.Sprintf("%f", scheduleCfg.HighSpaceRatio))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "scheduler-max-waiting-operator", fmt.Sprintf("%d", scheduleCfg.SchedulerMaxWaitingOperator))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "disable-raft-learner", fmt.Sprintf("%t", scheduleCfg.DisableLearner))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "disable-remove-down-replica", fmt.Sprintf("%t", scheduleCfg.DisableRemoveDownReplica))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "disable-replace-offline-replica", fmt.Sprintf("%t", scheduleCfg.DisableReplaceOfflineReplica))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "disable-make-up-replica", fmt.Sprintf("%t", scheduleCfg.DisableMakeUpReplica))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "disable-remove-extra-replica", fmt.Sprintf("%t", scheduleCfg.DisableRemoveExtraReplica))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "disable-location-replacement", fmt.Sprintf("%t", scheduleCfg.DisableLocationReplacement))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	err = w.updatePDConfig([]string{"schedule"}, "disable-namespace-relocation", fmt.Sprintf("%t", scheduleCfg.DisableNamespaceRelocation))
+	if err != nil {
+		return errors.Trace(err)
+	}
+	return nil
+}
+
+func (w *configWorker) updatePDConfig(
+	comp []string, name, value string) error {
+
+	comps := strings.Join(comp, ",")
+	stmt := fmt.Sprintf(`
+INSERT HIGH_PRIORITY INTO mysql.pd VALUES ('%[1]s', '%[2]s', '%[3]s')
+ON DUPLICATE KEY UPDATE variable_value = '%[3]s'`,
+		comps, name, value)
+
+	if w.session == nil {
+		return errors.New("[saveValueToSysTable session is nil]")
+	}
+
+	_, err := w.session.Execute(context.Background(), stmt)
+	logutil.BgLogger().Debug("[config worker] save config",
+		zap.String("name", name),
+		zap.String("value", value),
+		zap.String("comp", "PD"),
+		zap.Error(err))
+
 	return errors.Trace(err)
 }
 
