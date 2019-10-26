@@ -15,9 +15,11 @@ package executor
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/opentracing/opentracing-go"
+	"github.com/pingcap/log"
 	"github.com/pingcap/parser/ast"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/expression"
@@ -167,6 +169,10 @@ func updateRecord(ctx context.Context, sctx sessionctx.Context, h int64, oldData
 		}
 	} else {
 		// Update record to new value and update index.
+		log.Info("trace UpdateRecord", zap.String("datum", fmt.Sprintf("%v", newData)))
+		if UpdateHook != nil {
+			UpdateHook(t, newData)
+		}
 		if err = t.UpdateRecord(sctx, h, oldData, newData, modified); err != nil {
 			return false, false, 0, err
 		}
@@ -181,6 +187,9 @@ func updateRecord(ctx context.Context, sctx sessionctx.Context, h int64, oldData
 
 	return true, handleChanged, newHandle, nil
 }
+
+// UpdateHook hooks update
+var UpdateHook func(t table.Table, newData []types.Datum) error
 
 // resetErrDataTooLong reset ErrDataTooLong error msg.
 // types.ErrDataTooLong is produced in types.ProduceStrWithSpecifiedTp, there is no column info in there,

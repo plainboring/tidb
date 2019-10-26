@@ -25,6 +25,7 @@ import (
 	"github.com/pingcap/kvproto/pkg/kvrpcpb"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/mockstore/mocktikv"
+	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/store/tikv/tikvrpc"
 )
 
@@ -439,6 +440,40 @@ func (s *testCommitterSuite) TestWrittenKeysOnConflict(c *C) {
 	c.Assert(totalTime, Less, time.Millisecond*200)
 }
 
+func (s *testCommitterSuite) TestPrewriteTxnSize(c *C) {
+	// Prepare two regions first: (, 100) and [100, )
+	region, _ := s.cluster.GetRegionByKey([]byte{50})
+	newRegionID := s.cluster.AllocID()
+	newPeerID := s.cluster.AllocID()
+	s.cluster.Split(region.Id, newRegionID, []byte{100}, []uint64{newPeerID}, newPeerID)
+
+	txn := s.begin(c)
+	var val [1024]byte
+	for i := byte(50); i < 120; i++ {
+		err := txn.Set([]byte{i}, val[:])
+		c.Assert(err, IsNil)
+	}
+
+	commiter, err := newTwoPhaseCommitterWithInit(txn, 1)
+	c.Assert(err, IsNil)
+
+	ctx := context.Background()
+	err = commiter.prewriteKeys(NewBackoffer(ctx, prewriteMaxBackoff), commiter.keys)
+	c.Assert(err, IsNil)
+
+	// Check the written locks in the first region (50 keys)
+	for i := byte(50); i < 100; i++ {
+		lock := s.getLockInfo(c, []byte{i})
+		c.Assert(int(lock.TxnSize), Equals, 50)
+	}
+
+	// Check the written locks in the second region (20 keys)
+	for i := byte(100); i < 120; i++ {
+		lock := s.getLockInfo(c, []byte{i})
+		c.Assert(int(lock.TxnSize), Equals, 20)
+	}
+}
+
 func (s *testCommitterSuite) TestPessimisticPrewriteRequest(c *C) {
 	// This test checks that the isPessimisticLock field is set in the request even when no keys are pessimistic lock.
 	txn := s.begin(c)
@@ -451,7 +486,7 @@ func (s *testCommitterSuite) TestPessimisticPrewriteRequest(c *C) {
 	var batch batchKeys
 	batch.keys = append(batch.keys, []byte("t1"))
 	batch.region = RegionVerID{1, 1, 1}
-	req := commiter.buildPrewriteRequest(batch)
+	req := commiter.buildPrewriteRequest(batch, 1)
 	c.Assert(len(req.Prewrite().IsPessimisticLock), Greater, 0)
 	c.Assert(req.Prewrite().ForUpdateTs, Equals, uint64(100))
 }
@@ -466,8 +501,10 @@ func (s *testCommitterSuite) TestUnsetPrimaryKey(c *C) {
 	txn = s.begin(c)
 	txn.SetOption(kv.Pessimistic, true)
 	txn.SetOption(kv.PresumeKeyNotExists, nil)
+	txn.SetOption(kv.PresumeKeyNotExistsError, kv.NewExistErrInfo("name", "value"))
 	_, _ = txn.us.Get(context.TODO(), key)
 	c.Assert(txn.Set(key, key), IsNil)
+	txn.DelOption(kv.PresumeKeyNotExistsError)
 	txn.DelOption(kv.PresumeKeyNotExists)
 	err := txn.LockKeys(context.Background(), txn.startTS, key)
 	c.Assert(err, NotNil)
@@ -502,9 +539,29 @@ func (s *testCommitterSuite) TestPessimisticTTL(c *C) {
 	lockInfo := s.getLockInfo(c, key)
 	elapsedTTL := lockInfo.LockTtl - PessimisticLockTTL
 	c.Assert(elapsedTTL, GreaterEqual, uint64(100))
-	c.Assert(elapsedTTL, Less, uint64(200))
-	lockInfo2 := s.getLockInfo(c, key2)
-	c.Assert(lockInfo2.LockTtl, Equals, lockInfo.LockTtl)
+
+	lr := newLockResolver(s.store)
+	bo := NewBackoffer(context.Background(), getMaxBackoff)
+	status, err := lr.getTxnStatus(bo, txn.startTS, key2, 0, txn.startTS)
+	c.Assert(err, IsNil)
+	c.Assert(status.ttl, Equals, lockInfo.LockTtl)
+
+	// Check primary lock TTL is auto increasing while the pessimistic txn is ongoing.
+	for i := 0; i < 50; i++ {
+		lockInfoNew := s.getLockInfo(c, key)
+		if lockInfoNew.LockTtl > lockInfo.LockTtl {
+			currentTS, err := lr.store.GetOracle().GetTimestamp(bo.ctx)
+			c.Assert(err, IsNil)
+			// Check that the TTL is update to a reasonable range.
+			expire := oracle.ExtractPhysical(txn.startTS) + int64(lockInfoNew.LockTtl)
+			now := oracle.ExtractPhysical(currentTS)
+			c.Assert(expire > now, IsTrue)
+			c.Assert(uint64(expire-now) <= PessimisticLockTTL, IsTrue)
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	c.Assert(false, IsTrue, Commentf("update pessimistic ttl fail"))
 }
 
 func (s *testCommitterSuite) getLockInfo(c *C, key []byte) *kvrpcpb.LockInfo {
@@ -517,7 +574,7 @@ func (s *testCommitterSuite) getLockInfo(c *C, key []byte) *kvrpcpb.LockInfo {
 	loc, err := s.store.regionCache.LocateKey(bo, key)
 	c.Assert(err, IsNil)
 	batch := batchKeys{region: loc.Region, keys: [][]byte{key}}
-	req := commiter.buildPrewriteRequest(batch)
+	req := commiter.buildPrewriteRequest(batch, 1)
 	resp, err := s.store.SendReq(bo, req, loc.Region, readTimeoutShort)
 	c.Assert(err, IsNil)
 	c.Assert(resp.Resp, NotNil)

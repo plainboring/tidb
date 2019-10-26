@@ -162,6 +162,18 @@ func (s *testSuite2) TestIssue10549(c *C) {
 	tk.MustQuery("SHOW GRANTS FOR CURRENT_USER").Check(testkit.Rows("GRANT USAGE ON *.* TO 'dev'@'%'", "GRANT 'app_developer'@'%' TO 'dev'@'%'"))
 }
 
+func (s *testSuite3) TestIssue11165(c *C) {
+	tk := testkit.NewTestKit(c, s.store)
+	tk.MustExec("CREATE ROLE 'r_manager';")
+	tk.MustExec("CREATE USER 'manager'@'localhost';")
+	tk.MustExec("GRANT 'r_manager' TO 'manager'@'localhost';")
+
+	c.Assert(tk.Se.Auth(&auth.UserIdentity{Username: "manager", Hostname: "localhost", AuthUsername: "manager", AuthHostname: "localhost"}, nil, nil), IsTrue)
+	tk.MustExec("SET DEFAULT ROLE ALL TO 'manager'@'localhost';")
+	tk.MustExec("SET DEFAULT ROLE NONE TO 'manager'@'localhost';")
+	tk.MustExec("SET DEFAULT ROLE 'r_manager' TO 'manager'@'localhost';")
+}
+
 // TestShow2 is moved from session_test
 func (s *testSuite2) TestShow2(c *C) {
 	tk := testkit.NewTestKit(c, s.store)
@@ -571,6 +583,22 @@ func (s *testSuite2) TestShowCreateTable(c *C) {
 			"  PARTITION p11 VALUES LESS THAN (12),\n"+
 			"  PARTITION p12 VALUES LESS THAN (MAXVALUE)\n"+
 			")"))
+
+	//for issue #11831
+	tk.MustExec("create table ttt4(a varchar(123) default null collate utf8mb4_unicode_ci)engine=innodb default charset=utf8mb4 collate=utf8mb4_unicode_ci;")
+	tk.MustQuery("show create table `ttt4`").Check(testutil.RowsWithSep("|",
+		""+
+			"ttt4 CREATE TABLE `ttt4` (\n"+
+			"  `a` varchar(123) COLLATE utf8mb4_unicode_ci DEFAULT NULL\n"+
+			") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci",
+	))
+	tk.MustExec("create table ttt5(a varchar(123) default null)engine=innodb default charset=utf8mb4 collate=utf8mb4_bin;")
+	tk.MustQuery("show create table `ttt5`").Check(testutil.RowsWithSep("|",
+		""+
+			"ttt5 CREATE TABLE `ttt5` (\n"+
+			"  `a` varchar(123) DEFAULT NULL\n"+
+			") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin",
+	))
 }
 
 func (s *testSuite2) TestShowEscape(c *C) {

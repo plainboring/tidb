@@ -132,7 +132,7 @@ type tikvStore struct {
 	uuid         string
 	oracle       oracle.Oracle
 	client       Client
-	pdClient     pd.Client
+	PDClient     pd.Client
 	regionCache  *RegionCache
 	lockResolver *LockResolver
 	txnLatches   *latch.LatchesScheduler
@@ -141,6 +141,8 @@ type tikvStore struct {
 	tlsConfig    *tls.Config
 	mock         bool
 	enableGC     bool
+
+	cfgWorker ConfigHandler
 
 	kv        SafePointKV
 	safePoint uint64
@@ -188,7 +190,7 @@ func newTikvStore(uuid string, pdClient pd.Client, spkv SafePointKV, client Clie
 		uuid:            uuid,
 		oracle:          o,
 		client:          client,
-		pdClient:        pdClient,
+		PDClient:        pdClient,
 		regionCache:     NewRegionCache(pdClient),
 		kv:              spkv,
 		safePoint:       0,
@@ -223,16 +225,26 @@ func (s *tikvStore) TLSConfig() *tls.Config {
 
 // StartGCWorker starts GC worker, it's called in BootstrapSession, don't call this function more than once.
 func (s *tikvStore) StartGCWorker() error {
+	if NewConfigHandlerFunc != nil {
+		cfgWorker, err := NewConfigHandlerFunc(s, s.PDClient)
+		if err != nil {
+			return errors.Trace(err)
+		}
+		cfgWorker.Start()
+		s.cfgWorker = cfgWorker
+	}
+
 	if !s.enableGC || NewGCHandlerFunc == nil {
 		return nil
 	}
 
-	gcWorker, err := NewGCHandlerFunc(s, s.pdClient)
+	gcWorker, err := NewGCHandlerFunc(s, s.PDClient)
 	if err != nil {
 		return errors.Trace(err)
 	}
 	gcWorker.Start()
 	s.gcWorker = gcWorker
+
 	return nil
 }
 
@@ -241,7 +253,7 @@ func (s *tikvStore) runSafePointChecker() {
 	for {
 		select {
 		case spCachedTime := <-time.After(d):
-			cachedSafePoint, err := loadSafePoint(s.GetSafePointKV(), GcSavedSafePoint)
+			cachedSafePoint, err := loadSafePoint(s.GetSafePointKV())
 			if err == nil {
 				metrics.TiKVLoadSafepointCounter.WithLabelValues("ok").Inc()
 				s.UpdateSPCache(cachedSafePoint, spCachedTime)
@@ -288,7 +300,7 @@ func (s *tikvStore) Close() error {
 
 	delete(mc.cache, s.uuid)
 	s.oracle.Close()
-	s.pdClient.Close()
+	s.PDClient.Close()
 	if s.gcWorker != nil {
 		s.gcWorker.Close()
 	}

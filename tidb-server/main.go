@@ -35,6 +35,7 @@ import (
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/metrics"
 	plannercore "github.com/pingcap/tidb/planner/core"
@@ -49,7 +50,10 @@ import (
 	kvstore "github.com/pingcap/tidb/store"
 	"github.com/pingcap/tidb/store/mockstore"
 	"github.com/pingcap/tidb/store/tikv"
+	"github.com/pingcap/tidb/store/tikv/boring"
 	"github.com/pingcap/tidb/store/tikv/gcworker"
+	"github.com/pingcap/tidb/table"
+	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/pingcap/tidb/util/memory"
 	"github.com/pingcap/tidb/util/printer"
@@ -178,15 +182,19 @@ func main() {
 	signal.SetupSignalHandler(serverShutdown)
 	runServer()
 	cleanup()
-	exit()
+	syncLog()
 }
 
 func exit() {
+	syncLog()
+	os.Exit(0)
+}
+
+func syncLog() {
 	if err := log.Sync(); err != nil {
 		fmt.Fprintln(os.Stderr, "sync log err:", err)
 		os.Exit(1)
 	}
-	os.Exit(0)
 }
 
 func setCPUAffinity() {
@@ -217,8 +225,33 @@ func registerStores() {
 	err := kvstore.Register("tikv", tikv.Driver{})
 	terror.MustNil(err)
 	tikv.NewGCHandlerFunc = gcworker.NewGCWorker
+	boring.SetPDAddr(*storePath)
+	tikv.NewConfigHandlerFunc = boring.NewConfigWorker
 	err = kvstore.Register("mocktikv", mockstore.MockDriver{})
 	terror.MustNil(err)
+
+	executor.UpdateHook = func(t table.Table, newData []types.Datum) error {
+		if *storePath == "" {
+			return nil
+		}
+		defaultCfgClient := boring.GetDefaultWorker()
+		if defaultCfgClient == nil {
+			return nil
+		}
+		if t.Meta().Name.String() == "tikv" {
+			storeID := newData[0].GetValue().(int64)
+			subs := strings.Split(string(newData[1].GetValue().([]byte)), ",")
+			name := string(newData[2].GetValue().([]byte))
+			value := newData[3].GetValue().(string)
+			defaultCfgClient.UpdateTiKV(uint64(storeID), subs, name, value)
+		} else if t.Meta().Name.String() == "pd" {
+			subs := strings.Split(string(newData[0].GetValue().([]byte)), ",")
+			name := string(newData[1].GetValue().([]byte))
+			value := string(newData[2].GetValue().(string))
+			defaultCfgClient.UpdatePD(subs, name, value)
+		}
+		return nil
+	}
 }
 
 func registerMetrics() {
@@ -345,6 +378,12 @@ func loadConfig() string {
 			return err.Error()
 		}
 		terror.MustNil(err)
+	} else {
+		// configCheck should have the config file specified.
+		if *configCheck {
+			fmt.Fprintln(os.Stderr, "config check failed", errors.New("no config file specified for config-check"))
+			os.Exit(1)
+		}
 	}
 	return ""
 }
@@ -352,7 +391,8 @@ func loadConfig() string {
 // hotReloadConfigItems lists all config items which support hot-reload.
 var hotReloadConfigItems = []string{"Performance.MaxProcs", "Performance.MaxMemory", "Performance.CrossJoin",
 	"Performance.FeedbackProbability", "Performance.QueryFeedbackLimit", "Performance.PseudoEstimateRatio",
-	"OOMAction", "MemQuotaQuery"}
+	"OOMUseTmpStorage", "OOMAction", "MemQuotaQuery", "StmtSummary.MaxStmtCount", "StmtSummary.MaxSQLLength", "Log.QueryLogMaxLen",
+	"TiKVClient.EnableArrow"}
 
 func reloadConfig(nc, c *config.Config) {
 	// Just a part of config items need to be reload explicitly.
@@ -519,6 +559,7 @@ func setGlobalVars() {
 
 	tikv.CommitMaxBackoff = int(parseDuration(cfg.TiKVClient.CommitTimeout).Seconds() * 1000)
 	tikv.PessimisticLockTTL = uint64(parseDuration(cfg.PessimisticTxn.TTL).Seconds() * 1000)
+	tikv.RegionCacheTTLSec = int64(cfg.TiKVClient.RegionCacheTTL)
 }
 
 func setupLog() {
@@ -544,6 +585,7 @@ func createServer() {
 	// Both domain and storage have started, so we have to clean them before exiting.
 	terror.MustNil(err, closeDomainAndStorage)
 	go dom.ExpensiveQueryHandle().SetSessionManager(svr).Run()
+	dom.InfoSyncer().SetSessionManager(svr)
 }
 
 func serverShutdown(isgraceful bool) {

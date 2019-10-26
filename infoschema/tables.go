@@ -14,16 +14,21 @@
 package infoschema
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
 	"github.com/pingcap/parser/charset"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/domain/infosync"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/meta/autoid"
 	"github.com/pingcap/tidb/privilege"
@@ -38,6 +43,7 @@ import (
 	"github.com/pingcap/tidb/util/pdapi"
 	"github.com/pingcap/tidb/util/set"
 	"github.com/pingcap/tidb/util/sqlexec"
+	"go.uber.org/zap"
 )
 
 const (
@@ -81,6 +87,11 @@ const (
 	tableAnalyzeStatus                      = "ANALYZE_STATUS"
 	tableTiKVRegionStatus                   = "TIKV_REGION_STATUS"
 	tableTiKVRegionPeers                    = "TIKV_REGION_PEERS"
+	tableTiDBServersInfo                    = "TIDB_SERVERS_INFO"
+
+	// config!
+	tableTiKVConfig = "TIKV_CONFIG"
+	tablePDConfig   = "PD_CONFIG"
 )
 
 type columnInfo struct {
@@ -590,16 +601,68 @@ var tableTiKVStoreStatusCols = []columnInfo{
 	{"CAPACITY", mysql.TypeVarchar, 64, 0, nil, nil},
 	{"AVAILABLE", mysql.TypeVarchar, 64, 0, nil, nil},
 	{"LEADER_COUNT", mysql.TypeLonglong, 21, 0, nil, nil},
-	{"LEADER_WEIGHT", mysql.TypeLonglong, 21, 0, nil, nil},
-	{"LEADER_SCORE", mysql.TypeLonglong, 21, 0, nil, nil},
+	{"LEADER_WEIGHT", mysql.TypeDouble, 22, 0, nil, nil},
+	{"LEADER_SCORE", mysql.TypeDouble, 22, 0, nil, nil},
 	{"LEADER_SIZE", mysql.TypeLonglong, 21, 0, nil, nil},
 	{"REGION_COUNT", mysql.TypeLonglong, 21, 0, nil, nil},
-	{"REGION_WEIGHT", mysql.TypeLonglong, 21, 0, nil, nil},
-	{"REGION_SCORE", mysql.TypeLonglong, 21, 0, nil, nil},
+	{"REGION_WEIGHT", mysql.TypeDouble, 22, 0, nil, nil},
+	{"REGION_SCORE", mysql.TypeDouble, 22, 0, nil, nil},
 	{"REGION_SIZE", mysql.TypeLonglong, 21, 0, nil, nil},
 	{"START_TS", mysql.TypeDatetime, 0, 0, nil, nil},
 	{"LAST_HEARTBEAT_TS", mysql.TypeDatetime, 0, 0, nil, nil},
 	{"UPTIME", mysql.TypeVarchar, 64, 0, nil, nil},
+}
+
+var tableTiKVConfigCols = []columnInfo{
+	{"STORE_ID", mysql.TypeLonglong, 21, 0, nil, nil},
+	{"ADDRESS", mysql.TypeVarchar, 64, 0, nil, nil},
+
+	{"RAFTSTORE.SYNC_LOG", mysql.TypeLonglong, 21, 0, nil, nil},
+	{"RAFTSTORE.STORE_POOL_THREAD", mysql.TypeLonglong, 21, 0, nil, nil},
+	{"RAFTSTORE.APPLY_POOL_THREAD", mysql.TypeLonglong, 21, 0, nil, nil},
+	{"RAFTSTORE.STORE_MAX_BATCH_SIZE", mysql.TypeLonglong, 64, 0, nil, nil},
+	{"RAFTSTORE.APPLY_MAX_BATCH_SIZE", mysql.TypeLonglong, 64, 0, nil, nil},
+	{"RAFTSTORE.HIBERNATE_REGIONS", mysql.TypeLonglong, 21, 0, nil, nil},
+
+	{"RAFTSTORE.RAFT_BASE_TICK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+
+	{"RAFTSTORE.RAFT_LOG_GC_TICK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.RAFT_LOG_GC_THRESHOLD", mysql.TypeLonglong, 64, 0, nil, nil},
+	{"RAFTSTORE.RAFT_LOG_GC_COUNT_LIMIT", mysql.TypeLonglong, 64, 0, nil, nil},
+	{"RAFTSTORE.RAFT_LOG_GC_SIZE_LIMIT", mysql.TypeVarchar, 64, 0, nil, nil},
+
+	{"RAFTSTORE.RAFT_ENTRY_CACHE_LIFE_TIME", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.RAFT_REJECT_TRANSFER_LEADER_DURATION", mysql.TypeVarchar, 64, 0, nil, nil},
+
+	{"RAFTSTORE.SPLIT_REGION_CHECK_TICK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.REGION_SPLIT_CHECK_DIFF", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.REGION_COMPACT_CHECK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.REGION_COMPACT_CHECK_STEP", mysql.TypeLonglong, 64, 0, nil, nil},
+	{"RAFTSTORE.REGION_COMPACT_MIN_TOMBSTONES", mysql.TypeLonglong, 64, 0, nil, nil},
+	{"RAFTSTORE.REGION_COMPACT_TOMBSTONES_PERCENT", mysql.TypeLonglong, 64, 0, nil, nil},
+	{"RAFTSTORE.LOCK_CF_COMPACT_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.LOCK_CF_COMPACT_BYTES_THRESHOLD", mysql.TypeVarchar, 64, 0, nil, nil},
+
+	{"RAFTSTORE.PD_HEARTBEAT_TICK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.PD_STORE_HEARTBEAT_TICK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+
+	{"RAFTSTORE.NOTIFY_CAPACITY", mysql.TypeLonglong, 64, 0, nil, nil},
+	{"RAFTSTORE.MESSAGES_PER_TICK", mysql.TypeLonglong, 64, 0, nil, nil},
+	{"RAFTSTORE.LEADER_TRANSFER_MAX_LOG_LAG", mysql.TypeLonglong, 64, 0, nil, nil},
+
+	{"RAFTSTORE.SNAP_MGR_GC_TICK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.SNAP_GC_TIMEOUT", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.MAX_PEER_DOWN_DURATION", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.MAX_LEADER_MISSING_DURATION", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.ABNORMAL_LEADER_MISSING_DURATION", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.PEER_STALE_STATE_CHECK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.SNAP_APPLY_BATCH_SIZE", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.CONSISTENCY_CHECK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.REPORT_REGION_FLOW_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.RAFT_STORE_MAX_LEADER_LEASE", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.MERGE_CHECK_TICK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"RAFTSTORE.MERGE_MAX_LOG_GAP", mysql.TypeLonglong, 64, 0, nil, nil},
+	{"RAFTSTORE.CLEANUP_IMPORT_SST_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
 }
 
 var tableAnalyzeStatusCols = []columnInfo{
@@ -644,6 +707,16 @@ var tableTiKVRegionPeersCols = []columnInfo{
 	{"IS_LEADER", mysql.TypeTiny, 1, mysql.NotNullFlag, 0, nil},
 	{"STATUS", mysql.TypeVarchar, 10, 0, 0, nil},
 	{"DOWN_SECONDS", mysql.TypeLonglong, 21, 0, 0, nil},
+}
+
+var tableTiDBServersInfoCols = []columnInfo{
+	{"DDL_ID", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"IP", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"PORT", mysql.TypeLonglong, 21, 0, nil, nil},
+	{"STATUS_PORT", mysql.TypeLonglong, 21, 0, nil, nil},
+	{"LEASE", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"VERSION", mysql.TypeVarchar, 64, 0, nil, nil},
+	{"GIT_HASH", mysql.TypeVarchar, 64, 0, nil, nil},
 }
 
 func dataForTiKVRegionStatus(ctx sessionctx.Context) (records [][]types.Datum, err error) {
@@ -818,12 +891,12 @@ func dataForTiKVStoreStatus(ctx sessionctx.Context) (records [][]types.Datum, er
 		row[6].SetString(storeStat.Status.Capacity)
 		row[7].SetString(storeStat.Status.Available)
 		row[8].SetInt64(storeStat.Status.LeaderCount)
-		row[9].SetInt64(storeStat.Status.LeaderWeight)
-		row[10].SetInt64(storeStat.Status.LeaderScore)
+		row[9].SetFloat64(storeStat.Status.LeaderWeight)
+		row[10].SetFloat64(storeStat.Status.LeaderScore)
 		row[11].SetInt64(storeStat.Status.LeaderSize)
 		row[12].SetInt64(storeStat.Status.RegionCount)
-		row[13].SetInt64(storeStat.Status.RegionWeight)
-		row[14].SetInt64(storeStat.Status.RegionScore)
+		row[13].SetFloat64(storeStat.Status.RegionWeight)
+		row[14].SetFloat64(storeStat.Status.RegionScore)
 		row[15].SetInt64(storeStat.Status.RegionSize)
 		startTs := types.Time{
 			Time: types.FromGoTime(storeStat.Status.StartTs),
@@ -840,6 +913,207 @@ func dataForTiKVStoreStatus(ctx sessionctx.Context) (records [][]types.Datum, er
 		row[18].SetString(storeStat.Status.Uptime)
 		records = append(records, row)
 	}
+	return records, nil
+}
+
+func dataForTiKVConfig(ctx sessionctx.Context) (records [][]types.Datum, err error) {
+	tikvStore, ok := ctx.GetStore().(tikv.Storage)
+	if !ok {
+		return nil, errors.New("Information about TiKV store status can be gotten only when the storage is TiKV")
+	}
+	tikvHelper := &helper.Helper{
+		Store:       tikvStore,
+		RegionCache: tikvStore.GetRegionCache(),
+	}
+	_ = tikvHelper
+	// TODO: get config pd server
+
+	cfgReader := strings.NewReader(tikvConfigFixture)
+	tikvCfg := new(TikvConfig)
+	_, err = toml.DecodeReader(cfgReader, tikvCfg)
+	if err != nil {
+		return nil, err
+	}
+
+	raftstoreCfg := tikvCfg.Raftstore
+
+	row := make([]types.Datum, len(tableTiKVConfigCols))
+	index := 0
+
+	// {"STORE_ID", mysql.TypeLonglong, 21, 0, nil, nil},
+	row[index].SetInt64(42)
+	index++
+
+	// {"ADDRESS", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString("tikv @ plainboring!")
+	index++
+
+	// {"SYNC_LOG", mysql.TypeLonglong, 21, 0, nil, nil},
+	if raftstoreCfg.SyncLog {
+		row[index].SetInt64(1)
+	} else {
+		row[index].SetInt64(0)
+	}
+	index++
+
+	// {"STORE_POOL_THREAD", mysql.TypeLonglong, 21, 0, nil, nil},
+	row[index].SetInt64(raftstoreCfg.StorePoolSize)
+	index++
+
+	// {"APPLY_POOL_THREAD", mysql.TypeLonglong, 21, 0, nil, nil},
+	row[index].SetInt64(raftstoreCfg.ApplyPoolSize)
+	index++
+
+	// {"STORE_MAX_BATCH_SIZE", mysql.TypeLonglong, 64, 0, nil, nil},
+	row[index].SetInt64(raftstoreCfg.StoreMaxBatchSize)
+	index++
+
+	// {"APPLY_MAX_BATCH_SIZE", mysql.TypeLonglong, 64, 0, nil, nil},
+	row[index].SetInt64(raftstoreCfg.ApplyMaxBatchSize)
+	index++
+
+	// {"HIBERNATE_REGIONS", mysql.TypeLonglong, 21, 0, nil, nil},
+	if raftstoreCfg.HibernateRegions {
+		row[index].SetInt64(1)
+	} else {
+		row[index].SetInt64(0)
+	}
+	index++
+
+	// {"RAFT_BASE_TICK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.RaftBaseTickInterval)
+	index++
+
+	// {"RAFT_LOG_GC_TICK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.RaftLogGCTickInterval)
+	index++
+
+	// {"RAFT_LOG_GC_THRESHOLD", mysql.TypeLonglong, 64, 0, nil, nil},
+	row[index].SetInt64(raftstoreCfg.RaftLogGCThreshold)
+	index++
+
+	// {"RAFT_LOG_GC_COUNT_LIMIT", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetInt64(raftstoreCfg.RaftLogGCCountLimit)
+	index++
+
+	// {"RAFT_LOG_GC_SIZE_LIMIT", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.RaftLogGCSizeLimit)
+	index++
+
+	// {"RAFT_ENTRY_CACHE_LIFE_TIME", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.RaftEntryCacheLifeTime)
+	index++
+
+	// {"RAFT_REJECT_TRANSFER_LEADER_DURATION", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.RaftRejectTransferLeaderDuration)
+	index++
+
+	// {"SPLIT_REGION_CHECK_TICK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.SplitRegionCheckTickInterval)
+	index++
+
+	// {"REGION_SPLIT_CHECK_DIFF", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.RegionSplitCheckDiff)
+	index++
+
+	// {"REGION_COMPACT_CHECK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.RegionCompactCheckInterval)
+	index++
+
+	// {"REGION_COMPACT_CHECK_STEP", mysql.TypeLonglong, 64, 0, nil, nil},
+	row[index].SetInt64(raftstoreCfg.RegionCompactCheckStep)
+	index++
+
+	// {"REGION_COMPACT_MIN_TOMBSTONES", mysql.TypeLonglong, 64, 0, nil, nil},
+	row[index].SetInt64(raftstoreCfg.RegionCompactMinTombstones)
+	index++
+
+	// {"REGION_COMPACT_TOMBSTONES_PERCENT", mysql.TypeLonglong, 64, 0, nil, nil},
+	row[index].SetInt64(raftstoreCfg.RegionCompactTombstonesPercent)
+	index++
+
+	// {"LOCK_CF_COMPACT_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.LockCfCompactInterval)
+	index++
+
+	// {"LOCK_CF_COMPACT_BYTES_THRESHOLD", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.LockCfCompactBytesThreshold)
+	index++
+
+	// {"PD_HEARTBEAT_TICK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.PdHeartbeatTickInterval)
+	index++
+
+	// {"PD_STORE_HEARTBEAT_TICK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.PdStoreHeartbeatTickInterval)
+	index++
+
+	// {"NOTIFY_CAPACITY", mysql.TypeLonglong, 64, 0, nil, nil},
+	row[index].SetInt64(raftstoreCfg.NotifyCapacity)
+	index++
+
+	// {"MESSAGES_PER_TICK", mysql.TypeLonglong, 64, 0, nil, nil},
+	row[index].SetInt64(raftstoreCfg.MessagesPerTick)
+	index++
+
+	// {"LEADER_TRANSFER_MAX_LOG_LAG", mysql.TypeLonglong, 64, 0, nil, nil},
+	row[index].SetInt64(raftstoreCfg.LeaderTransferMaxLogLag)
+	index++
+
+	// {"SNAP_MGR_GC_TICK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.SnapMgrGCTickInterval)
+	index++
+
+	// {"SNAP_GC_TIMEOUT", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.SnapGCTimeout)
+	index++
+
+	// {"MAX_PEER_DOWN_DURATION", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.MaxPeerDownDuration)
+	index++
+
+	// {"MAX_LEADER_MISSING_DURATION", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.MaxLeaderMissingDuration)
+	index++
+
+	// {"ABNORMAL_LEADER_MISSING_DURATION", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.AbnormalLeaderMissingDuration)
+	index++
+
+	// {"PEER_STALE_STATE_CHECK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.PeerStaleStateCheckInterval)
+	index++
+
+	// {"SNAP_APPLY_BATCH_SIZE", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.SnapApplyBatchSize)
+	index++
+
+	// {"CONSISTENCY_CHECK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.ConsistencyCheckInterval)
+	index++
+
+	// {"REPORT_REGION_FLOW_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.ReportRegionFlowInterval)
+	index++
+
+	// {"RAFT_STORE_MAX_LEADER_LEASE", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.RaftStoreMaxLeaderLease)
+	index++
+
+	// {"MERGE_CHECK_TICK_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.MergeCheckTickInterval)
+	index++
+
+	// {"MERGE_MAX_LOG_GAP", mysql.TypeLonglong, 64, 0, nil, nil},
+	row[index].SetInt64(raftstoreCfg.MergeMaxLogGap)
+	index++
+
+	log.Info("tikv config", zap.Int("index", index), zap.Int("row", len(row)))
+	// {"CLEANUP_IMPORT_SST_INTERVAL", mysql.TypeVarchar, 64, 0, nil, nil},
+	row[index].SetString(raftstoreCfg.CleanupImportSstInterval)
+	index++
+
+	records = append(records, row)
 	return records, nil
 }
 
@@ -1030,7 +1304,7 @@ func dataForSchemata(schemas []*model.DBInfo) [][]types.Datum {
 }
 
 func getRowCountAllTable(ctx sessionctx.Context) (map[int64]uint64, error) {
-	rows, _, err := ctx.(sqlexec.RestrictedSQLExecutor).ExecRestrictedSQL(ctx, "select table_id, count from mysql.stats_meta")
+	rows, _, err := ctx.(sqlexec.RestrictedSQLExecutor).ExecRestrictedSQL("select table_id, count from mysql.stats_meta")
 	if err != nil {
 		return nil, err
 	}
@@ -1049,7 +1323,7 @@ type tableHistID struct {
 }
 
 func getColLengthAllTables(ctx sessionctx.Context) (map[tableHistID]uint64, error) {
-	rows, _, err := ctx.(sqlexec.RestrictedSQLExecutor).ExecRestrictedSQL(ctx, "select table_id, hist_id, tot_col_size from mysql.stats_histograms where is_index = 0")
+	rows, _, err := ctx.(sqlexec.RestrictedSQLExecutor).ExecRestrictedSQL("select table_id, hist_id, tot_col_size from mysql.stats_histograms where is_index = 0")
 	if err != nil {
 		return nil, err
 	}
@@ -1066,7 +1340,7 @@ func getColLengthAllTables(ctx sessionctx.Context) (map[tableHistID]uint64, erro
 	return colLengthMap, nil
 }
 
-func getDataAndIndexLength(info *model.TableInfo, rowCount uint64, columnLengthMap map[tableHistID]uint64) (uint64, uint64) {
+func getDataAndIndexLength(info *model.TableInfo, physicalID int64, rowCount uint64, columnLengthMap map[tableHistID]uint64) (uint64, uint64) {
 	columnLength := make(map[string]uint64)
 	for _, col := range info.Columns {
 		if col.State != model.StatePublic {
@@ -1076,7 +1350,7 @@ func getDataAndIndexLength(info *model.TableInfo, rowCount uint64, columnLengthM
 		if length != types.VarStorageLen {
 			columnLength[col.Name.L] = rowCount * uint64(length)
 		} else {
-			length := columnLengthMap[tableHistID{tableID: info.ID, histID: col.ID}]
+			length := columnLengthMap[tableHistID{tableID: physicalID, histID: col.ID}]
 			columnLength[col.Name.L] = length
 		}
 	}
@@ -1234,8 +1508,18 @@ func dataForTables(ctx sessionctx.Context, schemas []*model.DBInfo) ([][]types.D
 					}
 				}
 
-				rowCount := tableRowsMap[table.ID]
-				dataLength, indexLength := getDataAndIndexLength(table, rowCount, colLengthMap)
+				var rowCount, dataLength, indexLength uint64
+				if table.GetPartitionInfo() == nil {
+					rowCount = tableRowsMap[table.ID]
+					dataLength, indexLength = getDataAndIndexLength(table, table.ID, rowCount, colLengthMap)
+				} else {
+					for _, pi := range table.GetPartitionInfo().Definitions {
+						rowCount += tableRowsMap[pi.ID]
+						parDataLen, parIndexLen := getDataAndIndexLength(table, pi.ID, tableRowsMap[pi.ID], colLengthMap)
+						dataLength += parDataLen
+						indexLength += parIndexLen
+					}
+				}
 				avgRowLength := uint64(0)
 				if rowCount != 0 {
 					avgRowLength = dataLength / rowCount
@@ -1784,6 +2068,27 @@ func DataForAnalyzeStatus() (rows [][]types.Datum) {
 	return
 }
 
+func dataForServersInfo() ([][]types.Datum, error) {
+	serversInfo, err := infosync.GetAllServerInfo(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	rows := make([][]types.Datum, 0, len(serversInfo))
+	for _, info := range serversInfo {
+		row := types.MakeDatums(
+			info.ID,              // DDL_ID
+			info.IP,              // IP
+			int(info.Port),       // PORT
+			int(info.StatusPort), // STATUS_PORT
+			info.Lease,           // LEASE
+			info.Version,         // VERSION
+			info.GitHash,         // GIT_HASH
+		)
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
 var tableNameToColumns = map[string][]columnInfo{
 	tableSchemata:                           schemataCols,
 	tableTables:                             tablesCols,
@@ -1824,6 +2129,9 @@ var tableNameToColumns = map[string][]columnInfo{
 	tableAnalyzeStatus:                      tableAnalyzeStatusCols,
 	tableTiKVRegionStatus:                   tableTiKVRegionStatusCols,
 	tableTiKVRegionPeers:                    tableTiKVRegionPeersCols,
+	tableTiDBServersInfo:                    tableTiDBServersInfoCols,
+
+	tableTiKVConfig: tableTiKVConfigCols,
 }
 
 func createInfoSchemaTable(handle *Handle, meta *model.TableInfo) *infoschemaTable {
@@ -1927,6 +2235,11 @@ func (it *infoschemaTable) getRows(ctx sessionctx.Context, cols []*table.Column)
 		fullRows, err = dataForTiKVRegionStatus(ctx)
 	case tableTiKVRegionPeers:
 		fullRows, err = dataForTikVRegionPeers(ctx)
+	case tableTiDBServersInfo:
+		fullRows, err = dataForServersInfo()
+
+	case tableTiKVConfig:
+		fullRows, err = dataForTiKVConfig(ctx)
 	}
 	if err != nil {
 		return nil, err

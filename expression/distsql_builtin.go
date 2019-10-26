@@ -28,7 +28,8 @@ import (
 	"github.com/pingcap/tipb/go-tipb"
 )
 
-func pbTypeToFieldType(tp *tipb.FieldType) *types.FieldType {
+// PbTypeToFieldType converts tipb.FieldType to FieldType
+func PbTypeToFieldType(tp *tipb.FieldType) *types.FieldType {
 	return &types.FieldType{
 		Tp:      byte(tp.Tp),
 		Flag:    uint(tp.Flag),
@@ -40,7 +41,7 @@ func pbTypeToFieldType(tp *tipb.FieldType) *types.FieldType {
 }
 
 func getSignatureByPB(ctx sessionctx.Context, sigCode tipb.ScalarFuncSig, tp *tipb.FieldType, args []Expression) (f builtinFunc, e error) {
-	fieldTp := pbTypeToFieldType(tp)
+	fieldTp := PbTypeToFieldType(tp)
 	base := newBaseBuiltinFunc(ctx, args)
 	base.tp = fieldTp
 	switch sigCode {
@@ -320,8 +321,12 @@ func getSignatureByPB(ctx sessionctx.Context, sigCode tipb.ScalarFuncSig, tp *ti
 	case tipb.ScalarFuncSig_BitNegSig:
 		f = &builtinBitNegSig{base}
 
-	case tipb.ScalarFuncSig_UnaryNot:
-		f = &builtinUnaryNotSig{base}
+	case tipb.ScalarFuncSig_UnaryNotReal:
+		f = &builtinUnaryNotRealSig{base}
+	case tipb.ScalarFuncSig_UnaryNotDecimal:
+		f = &builtinUnaryNotDecimalSig{base}
+	case tipb.ScalarFuncSig_UnaryNotInt:
+		f = &builtinUnaryNotIntSig{base}
 	case tipb.ScalarFuncSig_UnaryMinusInt:
 		f = &builtinUnaryMinusIntSig{base}
 	case tipb.ScalarFuncSig_UnaryMinusReal:
@@ -371,17 +376,17 @@ func getSignatureByPB(ctx sessionctx.Context, sigCode tipb.ScalarFuncSig, tp *ti
 		f = &builtinCaseWhenIntSig{base}
 
 	case tipb.ScalarFuncSig_IntIsFalse:
-		f = &builtinIntIsFalseSig{base}
+		f = &builtinIntIsFalseSig{base, false}
 	case tipb.ScalarFuncSig_RealIsFalse:
-		f = &builtinRealIsFalseSig{base}
+		f = &builtinRealIsFalseSig{base, false}
 	case tipb.ScalarFuncSig_DecimalIsFalse:
-		f = &builtinDecimalIsFalseSig{base}
+		f = &builtinDecimalIsFalseSig{base, false}
 	case tipb.ScalarFuncSig_IntIsTrue:
-		f = &builtinIntIsTrueSig{base}
+		f = &builtinIntIsTrueSig{base, false}
 	case tipb.ScalarFuncSig_RealIsTrue:
-		f = &builtinRealIsTrueSig{base}
+		f = &builtinRealIsTrueSig{base, false}
 	case tipb.ScalarFuncSig_DecimalIsTrue:
-		f = &builtinDecimalIsTrueSig{base}
+		f = &builtinDecimalIsTrueSig{base, false}
 
 	case tipb.ScalarFuncSig_IfNullReal:
 		f = &builtinIfNullRealSig{base}
@@ -448,6 +453,12 @@ func getSignatureByPB(ctx sessionctx.Context, sigCode tipb.ScalarFuncSig, tp *ti
 		f = &builtinJSONDepthSig{base}
 	case tipb.ScalarFuncSig_JsonSearchSig:
 		f = &builtinJSONSearchSig{base}
+	case tipb.ScalarFuncSig_JsonValidJsonSig:
+		f = &builtinJSONValidJSONSig{base}
+	case tipb.ScalarFuncSig_JsonValidStringSig:
+		f = &builtinJSONValidStringSig{base}
+	case tipb.ScalarFuncSig_JsonValidOthersSig:
+		f = &builtinJSONValidOthersSig{base}
 
 	case tipb.ScalarFuncSig_InInt:
 		f = &builtinInIntSig{base}
@@ -547,7 +558,7 @@ func PBToExpr(expr *tipb.Expr, tps []*types.FieldType, sc *stmtctx.StatementCont
 }
 
 func convertTime(data []byte, ftPB *tipb.FieldType, tz *time.Location) (*Constant, error) {
-	ft := pbTypeToFieldType(ftPB)
+	ft := PbTypeToFieldType(ftPB)
 	_, v, err := codec.DecodeUint(data)
 	if err != nil {
 		return nil, err
