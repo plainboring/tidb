@@ -134,6 +134,14 @@ const (
 		VARIABLE_VALUE VARCHAR(1024) DEFAULT Null,
 		COMMENT VARCHAR(1024));`
 
+	// CreateTiKVTable is the sql statement creates a tikv config table.
+	CreateTiKVTable = `CREATE TABLE if not exists mysql.tikv(
+		STORE_ID bigint(64) NOT NULL DEFAULT 0,
+		SUBSYSTEMS VARCHAR(1024) NOT NULL DEFAULT "",
+		VARIABLE_NAME VARCHAR(64) NOT NULL DEFAULT "",
+		VARIABLE_VALUE VARCHAR(1024) DEFAULT "",
+		PRIMARY KEY (STORE_ID, SUBSYSTEMS, VARIABLE_NAME));`
+
 	// CreateHelpTopic is the SQL statement creates help_topic table in system db.
 	// See: https://dev.mysql.com/doc/refman/5.5/en/system-database.html#system-database-help-tables
 	CreateHelpTopic = `CREATE TABLE if not exists mysql.help_topic (
@@ -900,6 +908,7 @@ func doDDLWorks(s Session) {
 	mustExecute(s, CreateGloablVariablesTable)
 	// Create TiDB table.
 	mustExecute(s, CreateTiDBTable)
+	mustExecute(s, CreateTiKVTable)
 	// Create help table.
 	mustExecute(s, CreateHelpTopic)
 	// Create stats_meta table.

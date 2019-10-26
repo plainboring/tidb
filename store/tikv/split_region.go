@@ -220,7 +220,7 @@ func (s *tikvStore) scatterRegion(regionID uint64) error {
 		zap.Uint64("regionID", regionID))
 	bo := NewBackoffer(context.Background(), scatterRegionBackoff)
 	for {
-		err := s.pdClient.ScatterRegion(context.Background(), regionID)
+		err := s.PDClient.ScatterRegion(context.Background(), regionID)
 		if err == nil {
 			break
 		}
@@ -247,7 +247,7 @@ func (s *tikvStore) WaitScatterRegionFinish(regionID uint64, backOff int) error 
 	bo := NewBackoffer(context.Background(), backOff)
 	logFreq := 0
 	for {
-		resp, err := s.pdClient.GetOperator(context.Background(), regionID)
+		resp, err := s.PDClient.GetOperator(context.Background(), regionID)
 		if err == nil && resp != nil {
 			if !bytes.Equal(resp.Desc, []byte("scatter-region")) || resp.Status != pdpb.OperatorStatus_RUNNING {
 				logutil.BgLogger().Info("wait scatter region finished",
@@ -277,7 +277,7 @@ func (s *tikvStore) WaitScatterRegionFinish(regionID uint64, backOff int) error 
 func (s *tikvStore) CheckRegionInScattering(regionID uint64) (bool, error) {
 	bo := NewBackoffer(context.Background(), locateRegionMaxBackoff)
 	for {
-		resp, err := s.pdClient.GetOperator(context.Background(), regionID)
+		resp, err := s.PDClient.GetOperator(context.Background(), regionID)
 		if err == nil && resp != nil {
 			if !bytes.Equal(resp.Desc, []byte("scatter-region")) || resp.Status != pdpb.OperatorStatus_RUNNING {
 				return false, nil

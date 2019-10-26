@@ -20,11 +20,13 @@ package tables
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/log"
 	"github.com/pingcap/parser/model"
 	"github.com/pingcap/parser/mysql"
 	"github.com/pingcap/tidb/kv"
@@ -543,6 +545,7 @@ func (t *tableCommon) AddRecord(ctx sessionctx.Context, r []types.Datum, opts ..
 		}
 	}
 	sc.AddAffectedRows(1)
+	log.Info("trace AddRecord", zap.String("datum", fmt.Sprintf("%v", r)))
 	colSize := make(map[int64]int64, len(r))
 	for id, col := range t.Cols() {
 		size, err := codec.EstimateValueSize(sc, r[id])

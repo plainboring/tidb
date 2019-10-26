@@ -16,7 +16,7 @@ package tikv
 import (
 	"time"
 
-	"github.com/pingcap/pd/client"
+	pd "github.com/pingcap/pd/client"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/store/tikv/oracle"
 	"github.com/pingcap/tidb/store/tikv/tikvrpc"
@@ -69,3 +69,14 @@ type GCHandler interface {
 // NewGCHandlerFunc creates a new GCHandler.
 // To enable real GC, we should assign the function to `gcworker.NewGCWorker`.
 var NewGCHandlerFunc func(storage Storage, pdClient pd.Client) (GCHandler, error)
+
+// NewConfigHandlerFunc creates a new ConfigHandler.
+// To enable real GC, we should assign the function to `gcworker.NewGCWorker`.
+var NewConfigHandlerFunc func(storage Storage, pdClient pd.Client) (ConfigHandler, error)
+
+// ConfigHandler runs config job.
+type ConfigHandler interface {
+	// Start starts the ConfigHandler.
+	Start()
+	UpdateTiKV(storeID uint64, subs []string, name, value string) error
+}

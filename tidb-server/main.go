@@ -35,6 +35,7 @@ import (
 	"github.com/pingcap/tidb/config"
 	"github.com/pingcap/tidb/ddl"
 	"github.com/pingcap/tidb/domain"
+	"github.com/pingcap/tidb/executor"
 	"github.com/pingcap/tidb/kv"
 	"github.com/pingcap/tidb/metrics"
 	plannercore "github.com/pingcap/tidb/planner/core"
@@ -49,7 +50,10 @@ import (
 	kvstore "github.com/pingcap/tidb/store"
 	"github.com/pingcap/tidb/store/mockstore"
 	"github.com/pingcap/tidb/store/tikv"
+	"github.com/pingcap/tidb/store/tikv/boring"
 	"github.com/pingcap/tidb/store/tikv/gcworker"
+	"github.com/pingcap/tidb/table"
+	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/logutil"
 	"github.com/pingcap/tidb/util/memory"
 	"github.com/pingcap/tidb/util/printer"
@@ -221,8 +225,23 @@ func registerStores() {
 	err := kvstore.Register("tikv", tikv.Driver{})
 	terror.MustNil(err)
 	tikv.NewGCHandlerFunc = gcworker.NewGCWorker
+	tikv.NewConfigHandlerFunc = boring.NewConfigWorker
 	err = kvstore.Register("mocktikv", mockstore.MockDriver{})
 	terror.MustNil(err)
+
+	executor.UpdateHook = func(t table.Table, newData []types.Datum) error {
+		if t.Meta().Name.String() == "tikv" {
+			defaultCfgClient := boring.GetDefaultWorker()
+			if defaultCfgClient != nil {
+				storeID := newData[0].GetValue().(int64)
+				subs := strings.Split(string(newData[1].GetValue().([]byte)), ",")
+				name := string(newData[2].GetValue().([]byte))
+				value := string(newData[2].GetValue().([]byte))
+				defaultCfgClient.UpdateTiKV(uint64(storeID), subs, name, value)
+			}
+		}
+		return nil
+	}
 }
 
 func registerMetrics() {
