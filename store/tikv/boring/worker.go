@@ -300,6 +300,79 @@ func (w *configWorker) initTiKVConfig(storeID uint64) error {
 		return err
 	}
 
+	rocksdbCfg := tikvCfg.Rocksdb
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "wal-recovery-mode", fmt.Sprintf("%d", rocksdbCfg.WalRecoveryMode))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "wal-dir", fmt.Sprintf("%s", rocksdbCfg.WalDir))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "wal-ttl-seconds", fmt.Sprintf("%d", rocksdbCfg.WalTTLSeconds))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "wal-size-limit", fmt.Sprintf("%s", rocksdbCfg.WalSizeLimit))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "max-total-wal-size", fmt.Sprintf("%s", rocksdbCfg.MaxTotalWalSize))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "max-background-jobs", fmt.Sprintf("%d", rocksdbCfg.MaxBackgroundJobs))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "max-manifest-file-size", fmt.Sprintf("%s", rocksdbCfg.MaxManifestFileSize))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "create-if-missing", fmt.Sprintf("%t", rocksdbCfg.CreateIfMissing))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "max-open-files", fmt.Sprintf("%d", rocksdbCfg.MaxOpenFiles))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "enable-statistics", fmt.Sprintf("%t", rocksdbCfg.EnableStatistics))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "stats-dump-period", fmt.Sprintf("%s", rocksdbCfg.StatsDumpPeriod))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "compaction-readahead-size", fmt.Sprintf("%s", rocksdbCfg.CompactionReadaheadSize))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "info-log-max-size", fmt.Sprintf("%s", rocksdbCfg.InfoLogMaxSize))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "info-log-roll-time", fmt.Sprintf("%s", rocksdbCfg.InfoLogRollTime))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "info-log-keep-log-file-num", fmt.Sprintf("%d", rocksdbCfg.InfoLogKeepLogFileNum))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "info-log-dir", fmt.Sprintf("%s", rocksdbCfg.InfoLogDir))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "rate-bytes-per-sec", fmt.Sprintf("%s", rocksdbCfg.RateBytesPerSec))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "rate-limiter-mode", fmt.Sprintf("%d", rocksdbCfg.RateLimiterMode))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "auto-tuned", fmt.Sprintf("%t", rocksdbCfg.AutoTuned))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "bytes-per-sync", fmt.Sprintf("%s", rocksdbCfg.BytesPerSync))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "wal-bytes-per-sync", fmt.Sprintf("%s", rocksdbCfg.WalBytesPerSync))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "max-sub-compactions", fmt.Sprintf("%d", rocksdbCfg.MaxSubCompactions))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "writable-file-max-buffer-size", fmt.Sprintf("%s", rocksdbCfg.WritableFileMaxBufferSize))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "use-direct-io-for-flush-and-compaction", fmt.Sprintf("%t", rocksdbCfg.UseDirectIoForFlushAndCompaction))
+	w.updateTiKVConfig(storeID, []string{"rocksdb"}, "enable-pipelined-write", fmt.Sprintf("%t", rocksdbCfg.EnablePipelinedWrite))
+
+	cfCfgs := []kvcfg.CfConfig{rocksdbCfg.Defaultcf, rocksdbCfg.Writecf, rocksdbCfg.Lockcf}
+	cfNames := []string{"defaultcf", "writecf", "lockcf"}
+	for i, cfg := range cfCfgs {
+		cf := cfNames[i]
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "block-size", fmt.Sprintf("%s", cfg.BlockSize))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "block-cache-size", fmt.Sprintf("%s", cfg.BlockCacheSize))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "disable-block-cache", fmt.Sprintf("%t", cfg.DisableBlockCache))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "cache-index-and-filter-blocks", fmt.Sprintf("%t", cfg.CacheIndexAndFilterBlocks))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "pin-l0-filter-and-index-blocks", fmt.Sprintf("%t", cfg.PinL0FilterAndIndexBlocks))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "use-bloom-filter", fmt.Sprintf("%t", cfg.UseBloomFilter))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "optimize-filters-for-hits", fmt.Sprintf("%t", cfg.OptimizeFiltersForHits))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "whole-key-filtering", fmt.Sprintf("%t", cfg.WholeKeyFiltering))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "bloom-filter-bits-per-key", fmt.Sprintf("%d", cfg.BloomFilterBitsPerKey))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "block-based-bloom-filter", fmt.Sprintf("%t", cfg.BlockBasedBloomFilter))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "read-amp-bytes-per-bit", fmt.Sprintf("%d", cfg.ReadAmpBytesPerBit))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "compression-per-level", fmt.Sprintf("%s", cfg.CompressionPerLevel))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "write-buffer-size", fmt.Sprintf("%s", cfg.WriteBufferSize))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "max-write-buffer-number", fmt.Sprintf("%d", cfg.MaxWriteBufferNumber))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "min-write-buffer-number-to-merge", fmt.Sprintf("%d", cfg.MinWriteBufferNumberToMerge))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "max-bytes-for-level-base", fmt.Sprintf("%s", cfg.MaxBytesForLevelBase))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "target-file-size-base", fmt.Sprintf("%s", cfg.TargetFileSizeBase))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "level0-file-num-compaction-trigger", fmt.Sprintf("%d", cfg.Level0FileNumCompactionTrigger))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "level0-slowdown-writes-trigger", fmt.Sprintf("%d", cfg.Level0SlowdownWritesTrigger))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "level0-stop-writes-trigger", fmt.Sprintf("%d", cfg.Level0StopWritesTrigger))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "max-compaction-bytes", fmt.Sprintf("%s", cfg.MaxCompactionBytes))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "compaction-pri", fmt.Sprintf("%d", cfg.CompactionPri))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "dynamic-level-bytes", fmt.Sprintf("%t", cfg.DynamicLevelBytes))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "num-levels", fmt.Sprintf("%d", cfg.NumLevels))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "max-bytes-for-level-multiplier", fmt.Sprintf("%d", cfg.MaxBytesForLevelMultiplier))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "compaction-style", fmt.Sprintf("%d", cfg.CompactionStyle))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "disable-auto-compactions", fmt.Sprintf("%t", cfg.DisableAutoCompactions))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "soft-pending-compaction-bytes-limit", fmt.Sprintf("%s", cfg.SoftPendingCompactionBytesLimit))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "hard-pending-compaction-bytes-limit", fmt.Sprintf("%s", cfg.HardPendingCompactionBytesLimit))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "force-consistency-checks", fmt.Sprintf("%t", cfg.ForceConsistencyChecks))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "prop-size-index-distance", fmt.Sprintf("%d", cfg.PropSizeIndexDistance))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "prop-keys-index-distance", fmt.Sprintf("%d", cfg.PropKeysIndexDistance))
+		w.updateTiKVConfig(storeID, []string{"rocksdb", cf}, "enable-doubly-skiplist", fmt.Sprintf("%t", cfg.EnableDoublySkiplist))
+	}
+
+	titanCfg := rocksdbCfg.Titan
+	w.updateTiKVConfig(storeID, []string{"rocksdb", "titan"}, "enabled", fmt.Sprintf("%t", titanCfg.Enabled))
+	w.updateTiKVConfig(storeID, []string{"rocksdb", "titan"}, "dirname", fmt.Sprintf("%s", titanCfg.Dirname))
+	w.updateTiKVConfig(storeID, []string{"rocksdb", "titan"}, "disable-gc", fmt.Sprintf("%t", titanCfg.DisableGc))
+	w.updateTiKVConfig(storeID, []string{"rocksdb", "titan"}, "max-background-gc", fmt.Sprintf("%d", titanCfg.MaxBackgroundGc))
+	w.updateTiKVConfig(storeID, []string{"rocksdb", "titan"}, "purge-obsolete-files-period", fmt.Sprintf("%s", titanCfg.PurgeObsoleteFilesPeriod))
+
 	stoargeCfg := tikvCfg.Storage
 	err = w.updateTiKVConfig(storeID, []string{"storage"}, "data-dir", fmt.Sprintf("%s", stoargeCfg.DataDir))
 	if err != nil {
