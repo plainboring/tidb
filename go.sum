@@ -200,8 +200,16 @@ github.com/plainboring/config_client v0.0.0-20191026091522-7e40f11091f3 h1:HVgSc
 github.com/plainboring/config_client v0.0.0-20191026091522-7e40f11091f3/go.mod h1:f0XvKlCBKaV3gZXsXYRUG4ah1MhU0dfU4sDzhsoKnZA=
 github.com/plainboring/config_client v0.0.0-20191026111010-f1dd68a608b3 h1:EqBMUywWg3h2HQwaEI+VAsmivngyzVJO/88I6nRX/uQ=
 github.com/plainboring/config_client v0.0.0-20191026111010-f1dd68a608b3/go.mod h1:f0XvKlCBKaV3gZXsXYRUG4ah1MhU0dfU4sDzhsoKnZA=
+github.com/plainboring/config_client v0.0.0-20191026124256-e7cccd991700 h1:MqoXextcSNjiiXBg0tVi74l4lJMEnGPC0AYfN9M9LNc=
+github.com/plainboring/config_client v0.0.0-20191026124256-e7cccd991700/go.mod h1:f0XvKlCBKaV3gZXsXYRUG4ah1MhU0dfU4sDzhsoKnZA=
+github.com/plainboring/config_client v0.0.0-20191026163547-ca5549d562c6 h1:zX8kkU/E1qV2QTVddOQyukTTHisFO6X6DF5aswwp9ek=
+github.com/plainboring/config_client v0.0.0-20191026163547-ca5549d562c6/go.mod h1:tIHWqecfhHSfRgadv7pNWqVFT2aRqibIYY+peT77j1o=
+github.com/plainboring/config_client v0.0.0-20191026165930-fc3184fd2bad h1:C07/drV22QpWIZhZb5jrurvBJ9ate9J6XGgTDbuys4w=
+github.com/plainboring/config_client v0.0.0-20191026165930-fc3184fd2bad/go.mod h1:tIHWqecfhHSfRgadv7pNWqVFT2aRqibIYY+peT77j1o=
 github.com/plainboring/kvproto v0.0.0-20191026023322-e80cd74509d2 h1:maCN8aAp+zXBHikJDAUp8tO9rlRUsLR81+9ruZMopr4=
 github.com/plainboring/kvproto v0.0.0-20191026023322-e80cd74509d2/go.mod h1:WWLmULLO7l8IOcQG+t+ItJ3fEcrL5FxF0Wu+HrMy26w=
+github.com/plainboring/kvproto v0.0.0-20191026132945-c4450272525d h1:xjLQh0eVxcq6oenYhJAJnCO0l8gLzhpQ3jJSnFEe0a8=
+github.com/plainboring/kvproto v0.0.0-20191026132945-c4450272525d/go.mod h1:WWLmULLO7l8IOcQG+t+ItJ3fEcrL5FxF0Wu+HrMy26w=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/prometheus/client_golang v0.8.0/go.mod h1:7SWBe2y4D6OKWSNQJUaRYU/AaXPKyh/dDVn+NZz0KFw=

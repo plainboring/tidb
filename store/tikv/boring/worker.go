@@ -300,8 +300,145 @@ func (w *configWorker) initTiKVConfig(storeID uint64) error {
 		return err
 	}
 
-	raftstoreCfg := tikvCfg.Raftstore
+	stoargeCfg := tikvCfg.Storage
+	err = w.updateTiKVConfig(storeID, []string{"storage"}, "data-dir", fmt.Sprintf("%s", stoargeCfg.DataDir))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"storage"}, "max-key-size", fmt.Sprintf("%d", stoargeCfg.MaxKeySize))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"storage"}, "scheduler-notify-capacity", fmt.Sprintf("%d", stoargeCfg.SchedulerNotifyCapacity))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"storage"}, "scheduler-concurrency", fmt.Sprintf("%d", stoargeCfg.SchedulerConcurrency))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"storage"}, "scheduler-worker-pool-size", fmt.Sprintf("%d", stoargeCfg.SchedulerWorkerPoolSize))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"storage"}, "scheduler-pending-write-threshold", fmt.Sprintf("%s", stoargeCfg.SchedulerPendingWriteThreshold))
+	if err != nil {
+		return err
+	}
 
+	blockCfg := tikvCfg.Storage.BlockCache
+	err = w.updateTiKVConfig(storeID, []string{"storage", "block-cache"}, "shared", fmt.Sprintf("%t", blockCfg.Shared))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"storage", "block-cache"}, "capacity", fmt.Sprintf("%s", blockCfg.Capacity))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"storage", "block-cache"}, "num-shard-bits", fmt.Sprintf("%d", blockCfg.NumShardBits))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"storage", "block-cache"}, "strict-capacity-limit", fmt.Sprintf("%t", blockCfg.StrictCapacityLimit))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"storage", "block-cache"}, "high-pri-pool-ratio", fmt.Sprintf("%f", blockCfg.HighPriPoolRatio))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"storage", "block-cache"}, "memory-allocator", fmt.Sprintf("%s", blockCfg.MemoryAllocator))
+	if err != nil {
+		return err
+	}
+
+	serverCfg := tikvCfg.Server
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "grpc-compression-type", fmt.Sprintf("%s", serverCfg.GrpcCompressionType))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "grpc-concurrency", fmt.Sprintf("%d", serverCfg.GrpcConcurrency))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "grpc-concurrent-stream", fmt.Sprintf("%d", serverCfg.GrpcConcurrentStream))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "grpc-raft-conn-num", fmt.Sprintf("%d", serverCfg.GrpcRaftConnNum))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "grpc-stream-initial-window-size", fmt.Sprintf("%s", serverCfg.GrpcStreamInitialWindowSize))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "grpc-keepalive-time", fmt.Sprintf("%s", serverCfg.GrpcKeepaliveTime))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "grpc-keepalive-timeout", fmt.Sprintf("%s", serverCfg.GrpcKeepaliveTimeout))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "concurrent-send-snap-limit", fmt.Sprintf("%d", serverCfg.ConcurrentSendSnapLimit))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "concurrent-recv-snap-limit", fmt.Sprintf("%d", serverCfg.ConcurrentRecvSnapLimit))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "end-point-recursion-limit", fmt.Sprintf("%d", serverCfg.EndPointRecursionLimit))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "end-point-stream-channel-size", fmt.Sprintf("%d", serverCfg.EndPointStreamChannelSize))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "end-point-batch-row-limit", fmt.Sprintf("%d", serverCfg.EndPointBatchRowLimit))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "end-point-stream-batch-row-limit", fmt.Sprintf("%d", serverCfg.EndPointStreamBatchRowLimit))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "end-point-enable-batch-if-possible", fmt.Sprintf("%t", serverCfg.EndPointEnableBatchIfPossible))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "end-point-request-max-handle-duration", fmt.Sprintf("%s", serverCfg.EndPointRequestMaxHandleDuration))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "snap-max-write-bytes-per-sec", fmt.Sprintf("%s", serverCfg.SnapMaxWriteBytesPerSec))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "snap-max-total-size", fmt.Sprintf("%s", serverCfg.SnapMaxTotalSize))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "stats-concurrency", fmt.Sprintf("%d", serverCfg.StatsConcurrency))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "heavy-load-threshold", fmt.Sprintf("%d", serverCfg.HeavyLoadThreshold))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "heavy-load-wait-duration", fmt.Sprintf("%s", serverCfg.HeavyLoadWaitDuration))
+	if err != nil {
+		return err
+	}
+	err = w.updateTiKVConfig(storeID, []string{"server"}, "labels", fmt.Sprintf("%s", serverCfg.Labels))
+	if err != nil {
+		return err
+	}
+
+	raftstoreCfg := tikvCfg.Raftstore
 	err = w.updateTiKVConfig(storeID, []string{"raftstore"}, "sync-log", fmt.Sprintf("%t", raftstoreCfg.SyncLog))
 	if err != nil {
 		return err
